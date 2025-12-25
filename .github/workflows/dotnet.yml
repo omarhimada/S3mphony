@@ -41,7 +41,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: nuget
-          path: ./S3mphony/bin/Release/net10.0/publish*.nupkg
+          path: ./bin/Release/net10.0/publish/*.nupkg
           
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
@@ -49,7 +49,7 @@ jobs:
       - name: Publish NuGet package
         shell: pwsh
         run: |
-          foreach($file in (Get-ChildItem "./S3mphony/bin/Release/net10.0/publish" -Recurse -Include *.nupkg)) {
+          foreach($file in (Get-ChildItem "./bin/Release/net10.0/publish/" -Recurse -Include *.nupkg)) {
               dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
           }
           
