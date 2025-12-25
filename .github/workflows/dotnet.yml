@@ -15,7 +15,7 @@ jobs:
         uses: actions/setup-dotnet@v4
       - name: Pack
         shell: pwsh
-        run: dotnet pack S3mphony --configuration Release --output ${{ env.NuGetDirectory }}
+        run: dotnet pack S3mphony.csproj --configuration Release --output ${{ env.NuGetDirectory }}
       - uses: actions/upload-artifact@v4
         with:
           name: nuget
@@ -46,12 +46,13 @@ jobs:
   release:
     name: Create release
     runs-on: windows-latest
+    needs: deploy
+    if: success()
     env:
       GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-  
       - name: Create GitHub release
         run: |
           git fetch --tags
