@@ -4,6 +4,12 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
+		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+		<Title>S3mphony</Title>
+		<Authors>omarhimada</Authors>
+		<Description>S3mphony brings clarity and simplicity to Amazon S3 for .NET developers with a fully generic, read-through storage channel that works with any class. Upload and retrieve structured data without ceremony: automatic key normalization, smart defaults, prefix-scoped listing, and JSON helpers make S3 feel like a natural extension of your API or service layer. Its precision caching model only stores responses when there’s meaningful signal (non-null, non-empty), while supporting efficient batched retrieval so you never pull more from the bucket than you need. Thread-safe design and bounded concurrency patterns help keep your app responsive without wasting network or compute resources. The result is a library that feels effortlessly simple from the outside, and thoughtfully efficient on the inside — giving you resilient storage, clean caching, and a drastically simplified S3 experience.</Description>
+		<Copyright>MIT</Copyright>
+		<PackageProjectUrl>https://github.com/omarhimada/s3mphony</PackageProjectUrl>
 	</PropertyGroup>
 
 	<ItemGroup>
