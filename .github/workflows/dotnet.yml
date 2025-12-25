@@ -7,7 +7,7 @@ jobs:
     name: Create NuGet Package
     runs-on: windows-latest
     env:
-      NuGetDirectory: ${{ github.workspace }}/bin/Release
+      NuGetDirectory: ${{ github.workspace }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
     needs: create_nuget
     if: success()
     env:
-      NuGetDirectory: ${{ github.workspace }}/bin/Release
+      NuGetDirectory: ${{ github.workspace }}
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
