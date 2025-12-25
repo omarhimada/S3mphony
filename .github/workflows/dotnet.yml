@@ -22,6 +22,7 @@ jobs:
       - name: Pack
         shell: pwsh
         run: dotnet pack ./S3mphony.csproj --configuration Release --output ./S3mphony/bin/Release/net10.0
+        
       - uses: actions/upload-artifact@v4
         with:
           name: nuget
@@ -29,6 +30,7 @@ jobs:
           retention-days: 7
           path: ./S3mphony/bin/Release/net10.0/*.nupkg
           
+#########         
   deploy:
     name: Deploy NuGet
     runs-on: windows-latest
@@ -39,15 +41,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: nuget
-          path: ./S3mphony/bin/Release/net10.0/publish/*.nupkg
+          path: ./S3mphony/bin/Release/net10.0/*.nupkg
+          
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
+        
       - name: Publish NuGet package
         shell: pwsh
         run: |
-          foreach($file in (Get-ChildItem "./S3mphony/bin/Release/net10.0/" -Recurse -Include *.nupkg)) {
+          foreach($file in (Get-ChildItem "./S3mphony/bin/Release/net10.0/publish" -Recurse -Include *.nupkg)) {
               dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
           }
+          
+##########
   release:
     name: Create release
     runs-on: windows-latest
