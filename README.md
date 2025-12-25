@@ -19,7 +19,7 @@
 - Then, in your `Startup.cs` or `Program.cs`, wherever you configure services, add the following:
 
 ```csharp
-S3Options s3Options = new(builder.Configuration["AWS:S3]);
+S3Options s3Options = new(builder.Configuration["AWS:S3");
 
 builder.Configuration.Bind(s3Options);
 
