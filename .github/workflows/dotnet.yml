@@ -7,7 +7,7 @@ jobs:
     name: Create NuGet Package
     runs-on: windows-latest
     env:
-      NuGetDirectory: ${{ github.workspace }}/nuget
+      NuGetDirectory: ${{ github.workspace }}/bin/Release
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -15,7 +15,7 @@ jobs:
         uses: actions/setup-dotnet@v4
       - name: Pack
         shell: pwsh
-        run: dotnet pack S3mphony.csproj --configuration Release --output ${{ env.NuGetDirectory }}
+        run: dotnet pack S3mphony --configuration Release --output ${{ env.NuGetDirectory }}
       - uses: actions/upload-artifact@v4
         with:
           name: nuget
@@ -28,7 +28,7 @@ jobs:
     needs: create_nuget
     if: success()
     env:
-      NuGetDirectory: ${{ github.workspace }}/nuget
+      NuGetDirectory: ${{ github.workspace }}/bin/Release
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
