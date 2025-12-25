@@ -1,0 +1,131 @@
+name: NuGet Package Workflow
+on:
+  push:
+    branches: [ "master" ]
+jobs:
+  create_nuget:
+    name: Create NuGet Package
+    runs-on: windows-latest
+    env:
+      NuGetDirectory: ${{ github.workspace }}/nuget
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+      - name: Pack
+        shell: pwsh
+        run: dotnet pack S3mphony.csproj --configuration Release --output ${{ env.NuGetDirectory }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          if-no-files-found: error
+          retention-days: 7
+          path: ${{ env.NuGetDirectory }}/*.nupkg
+  deploy:
+    name: Deploy NuGet
+    runs-on: windows-latest
+    needs: create_nuget
+    if: success()
+    env:
+      NuGetDirectory: ${{ github.workspace }}/nuget
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ${{ env.NuGetDirectory }}
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v4
+      - name: Publish NuGet package
+        shell: pwsh
+        run: |
+          foreach($file in (Get-ChildItem "${{ env.NuGetDirectory }}" -Recurse -Include *.nupkg)) {
+              dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          }
+  release:
+    name: Create release
+    runs-on: windows-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+  
+      - name: Create GitHub release
+        run: |
+          git fetch --tags
+          NEW_TAG=$(git describe --tags --abbrev=0 origin/master)
+          echo "Latest tag on master: $NEW_TAG"
+          gh release create $NEW_TAG \
+              --repo="$GITHUB_REPOSITORY" \
+              --title="${NEW_TAG#v}" \
+              --generate-notes \
+              --generate-notes \
+              --verify-tag \
+              --latest
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: windows-latest
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --no-restore
+
+    - name: Publish NuGet
+      uses: brandedoutcast/publish-nuget@v2.5.5
+      with:
+        # Filepath of the project to be packaged, relative to root of repository
+        PROJECT_FILE_PATH: ./S3mphony.csproj
+        # NuGet package id, used for version detection & defaults to project name
+        PACKAGE_NAME: S3mphony
+        # Filepath with version info, relative to root of repository & defaults to PROJECT_FILE_PATH
+        VERSION_FILE_PATH: # optional
+        # Regex pattern to extract version info in a capturing group
+        VERSION_REGEX: # optional, default is ^\s*<Version>(.*)<\/Version>\s*$
+       
+        TAG_FORMAT: v*
+        NUGET_KEY: ${{ secrets.NUGET_KEY }}
+
+
+
+  deploy:
+    name: Deploy NuGet
+    runs-on: ubuntu-24.04
+    # A ready artifact is required before publishing
+    # The job waits for the create_nuget job to complete
+    needs: create_nuget
+    # This jobs runs if create_nuget succeeds
+    if: success()
+    # Save path to the NuGet directory in the environment variable
+    env:
+      NuGetDirectory: ${{ github.workspace }}/nuget
+    steps:
+      # Download the contents of the repository
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ${{ env.NuGetDirectory }}
+  
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v4
