@@ -14,7 +14,7 @@
 		<RepositoryUrl>https://github.com/omarhimada/S3mphony</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>AWS,S3,utility,tool,helper,Amazon,storage,blob,backups</PackageTags>
-		<PackageLicenseExpression>MIT License</PackageLicenseExpression>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
 	</PropertyGroup>
 
