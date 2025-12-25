@@ -41,7 +41,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: nuget
-          path: ./S3mphony/bin/Release/net10.0/*.nupkg
+          path: ./S3mphony/bin/Release/net10.0/publish*.nupkg
           
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
