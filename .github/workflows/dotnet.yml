@@ -69,7 +69,7 @@ jobs:
 
           foreach ($pkg in $pkgs) {
             dotnet nuget push "$($pkg.FullName)" `
-              --api-key "${{ secrets.NUGET_APIKEY }}" `
+              --api-key "${{ secrets.NUGET_KEY }}" `
               --source "https://api.nuget.org/v3/index.json" `
               --skip-duplicate
           }
