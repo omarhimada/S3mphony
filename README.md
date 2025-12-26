@@ -5,6 +5,9 @@
 - From a user’s perspective, everything is simplified: intuitive methods, sensible defaults, and a storage model that feels effortless while staying efficient behind the scenes.
 - Ideal for APIs, background workers, dashboards, and ML-ops prototypes that need resilient, low-cost, cache-aware access to S3.
 
+
+![NuGet Version](https://img.shields.io/nuget/v/S3mphony?style=flat)
+
 ## S3 Storage Utility Integration
 ### Example `appsettings.json` configuration for S3 storage:
 ```json

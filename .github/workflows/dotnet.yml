@@ -27,7 +27,7 @@ jobs:
       - name: Pack to artifacts folder
         shell: pwsh
         run: |
-          $version = [DateTime]::UtcNow.ToString("yyyy.MM.dd.HHmm")
+          $version = [System.DateTime]::UtcNow.ToString("yyyy.MM.dd.HHmm")
           New-Item -ItemType Directory -Force -Path "./artifacts/nuget" | Out-Null
           dotnet pack ./S3mphony.csproj `
             --configuration Release `
@@ -69,32 +69,8 @@ jobs:
 
           foreach ($pkg in $pkgs) {
             dotnet nuget push "$($pkg.FullName)" `
-              --api-key "${{ secrets.NUGET_APIKEY }}" `
+              --api-key "${{ secrets.NUGET_KEY }}" `
               --source "https://api.nuget.org/v3/index.json" `
               --skip-duplicate
           }
 
-  release:
-    name: Create release
-    runs-on: windows-latest
-    needs: deploy
-    if: success()
-    env:
-      GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Create GitHub release from latest tag on master
-        shell: pwsh
-        run: |
-          git fetch --tags --force
-          $tag = git describe --tags --abbrev=0
-          Write-Host "Latest tag: $tag"
-
-          gh release create $tag `
-            --repo "$env:GITHUB_REPOSITORY" `
-            --title $tag `
-            --generate-notes `
-            --latest
