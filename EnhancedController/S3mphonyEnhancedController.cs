@@ -44,7 +44,7 @@ namespace S3mphony.EnhancedController {
             }
 
             if (recentStructures.Any()) {
-                _cache.Set<IEnumerable<T>>(Constants.CacheKey<T>(), recentStructures, new MemoryCacheEntryOptions {
+                _cache.Set(Constants.CacheKey<T>(), recentStructures, new MemoryCacheEntryOptions {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                     Priority = CacheItemPriority.High
                 });
@@ -91,7 +91,7 @@ namespace S3mphony.EnhancedController {
                 name = $"{DateTime.Now.ToShortDateString}-{Guid.NewGuid().ToString()}";
 
             // Key of the recently created blob in S3
-            string createdKey = await _s3StorageUtility.PutStructureAsync<T>(item, name, prefix, contentType, overwrite, ct);
+            string createdKey = await _s3StorageUtility.PutStructureAsync(item, name, prefix, contentType, overwrite, ct);
 
             // Invalidate the GET cache so new item shows up next read
             _cache.Remove(Constants.CacheKey<T>());
