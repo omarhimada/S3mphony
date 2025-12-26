@@ -21,7 +21,7 @@ jobs:
         
       - name: Pack
         shell: pwsh
-        run: dotnet pack ./S3mphony.csproj --configuration Release --output ./S3mphony/bin/Release/net10.0
+        run: dotnet pack -p:PackageVersion=$([System.DateTime]::Now.ToString(&quot;yyyy.MM.dd.HHmm&quot;)) ./S3mphony.csproj --configuration Release --output ./S3mphony/bin/Release/net10.0
         
       - uses: actions/upload-artifact@v4
         with:
@@ -37,11 +37,12 @@ jobs:
     needs: create_nuget
     if: success()
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: nuget
-          path: ./S3mphony/bin/Release/net10.0/publish/*.nupkg
+      - name: Find latest from previous step artifact
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem "." -Recurse -File -Include *.nupkg
+          $score = { [Math]::Max($_.LastWriteTime.Ticks, $_.CreationTime.Ticks) }
+          $newest = $packages | Sort-Object $score -Descending | Select-Object -First 1
           
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
@@ -49,14 +50,6 @@ jobs:
       - name: Publish NuGet package
         shell: pwsh
         run: |
-          $packages = Get-ChildItem "." -Recurse -File -Include *.nupkg
-          
-          # Score each package by whichever timestamp is newer
-          $score = { [Math]::Max($_.LastWriteTime.Ticks, $_.CreationTime.Ticks) }
-
-          # Pick the single newest package
-          $newest = $packages | Sort-Object $score -Descending | Select-Object -First 1
-          
           dotnet nuget push $newest --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
         
 ##########
