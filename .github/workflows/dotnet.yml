@@ -35,30 +35,16 @@ jobs:
     name: Deploy NuGet
     runs-on: windows-latest
     needs: create_nuget
+    env:
+      NuGetDirectory: ${{ github.workspace}}/nuget
     if: success()
     steps:
-      - name: Find latest from previous step artifact
-        shell: pwsh
-        run: |
-          $packages = Get-ChildItem "." -Recurse -File -Include *.nupkg
-          echo pwd
-          ls
-          foreach($file in (Get-ChildItem "./nuget" -Recurse -Include *.nupkg) {
-            echo $file
-            echo (Resolve-Path $file)
-          }
-          $score = { [Math]::Max($_.LastWriteTime.Ticks, $_.CreationTime.Ticks) }
-          $newest = $packages | Sort-Object $score -Descending | Select-Object -First 1
-          
-      - name: Setup .NET Core
-        uses: actions/setup-dotnet@v4
-        
       - name: Publish NuGet package
         shell: pwsh
         run: |
-          $path = Resolve-Path $newest
-          dotnet nuget push $path --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
-        
+          foreach($file in (Get-ChildItem "${{ env.NuGetDirectory }}" -Recurse -Include *.nupkg)) {
+            dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          }
 ##########
   release:
     name: Create release
