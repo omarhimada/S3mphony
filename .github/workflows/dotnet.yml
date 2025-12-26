@@ -50,7 +50,8 @@ jobs:
       - name: Publish NuGet package
         shell: pwsh
         run: |
-          dotnet nuget push $newest --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          $path = Resolve-Path $newest
+          dotnet nuget push $path --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
         
 ##########
   release:
