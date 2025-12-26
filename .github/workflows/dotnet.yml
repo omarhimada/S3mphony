@@ -49,10 +49,16 @@ jobs:
       - name: Publish NuGet package
         shell: pwsh
         run: |
-          foreach($file in (Get-ChildItem "./bin/Release/net10.0/publish/" -Recurse -Include *.nupkg)) {
-              dotnet nuget push $file --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
-          }
+          $packages = Get-ChildItem "." -Recurse -File -Include *.nupkg
           
+          # Score each package by whichever timestamp is newer
+          $score = { [Math]::Max($_.LastWriteTime.Ticks, $_.CreationTime.Ticks) }
+
+          # Pick the single newest package
+          $newest = $packages | Sort-Object $score -Descending | Select-Object -First 1
+          
+          dotnet nuget push $newest --api-key "${{ secrets.NUGET_APIKEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        
 ##########
   release:
     name: Create release
