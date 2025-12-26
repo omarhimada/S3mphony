@@ -36,7 +36,7 @@ jobs:
     runs-on: windows-latest
     needs: create_nuget
     env:
-      NuGetDirectory: ${{ github.workspace}}/nuget
+      NuGetDirectory: ${{ github.workspace}}\S3mphony\bin\Release\net10.0\
     if: success()
     steps:
       - name: Publish NuGet package
