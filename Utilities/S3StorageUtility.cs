@@ -498,6 +498,75 @@ namespace S3mphony.Utility {
             await resp.ResponseStream.CopyToAsync(target, ct);
         }
 
+        /// <summary>
+        /// Asynchronously retrieves a list of S3 objects from the specified bucket and prefix whose keys end with the
+        /// given suffix.
+        /// </summary>
+        /// <remarks>This method automatically handles pagination of S3 object listings. The operation may
+        /// make multiple requests to S3 if the result set is large. The returned list contains only objects whose keys
+        /// match both the specified prefix and suffix.</remarks>
+        /// <param name="prefix">The key prefix to filter objects within the bucket. Only objects with keys that start with this prefix are
+        /// considered.</param>
+        /// <param name="endsWith">The suffix that object keys must end with to be included in the results. The comparison is case-insensitive.</param>
+        /// <param name="ct">A cancellation token that can be used to cancel the asynchronous operation.</param>
+        /// <returns>A task that represents the asynchronous operation. The task result contains a list of S3 objects whose keys
+        /// match the specified prefix and end with the given suffix. The list is empty if no matching objects are
+        /// found.</returns>
+        public async Task<List<T>> ListFilteredObjectsAsync<T>(
+            string prefix,
+            string endsWith,
+            CancellationToken ct = default) {
+            var responses = new List<T>();
+            string? continuation = null;
+
+            List<T> results = [];
+
+            do {
+                // Prefix filtering is built-in
+                ListObjectsV2Request request = new ListObjectsV2Request {
+                    BucketName = BucketName,
+                    Prefix = prefix,
+                    ContinuationToken = continuation,
+                };
+
+                ListObjectsV2Response response = await _s3.ListObjectsV2Async(request, ct);
+                if (response == null || response.S3Objects.Count == 0) {
+                    break;
+                }
+
+                // Filter objects by suffix with LINQ
+                var filteredKeys = response.S3Objects
+                    .Where(obj => obj.Key
+                        .EndsWith(endsWith, StringComparison.OrdinalIgnoreCase))
+                    .Select(obj => obj.Key)
+                    .ToList();
+
+                foreach (string? key in filteredKeys) {
+                    byte[]? data = await DownloadBytesAsync(key, ct);
+                    T? value = JsonSerializer.Deserialize<T>(data, _json);
+
+                    if (value != null) {
+                        results.Add(value);
+                    }
+                }
+
+                if (response == null || response.S3Objects.Count == 0) {
+                    break;
+                }
+                else {
+                    if (response.IsTruncated is null) {
+                        continuation = null;
+                        break;
+                    }
+                    else {
+                        continuation = response!.NextContinuationToken;
+                    }
+                }
+            } while (continuation is not null && !ct.IsCancellationRequested);
+
+            return results;
+        }
+
         public static string NormalizeKey(string name)
             => name.Replace('\\', '/').TrimStart('/');
     }
