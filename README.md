@@ -4,7 +4,7 @@
 - Built-in support for read-through caching and request-level concurrency gating helps prevent redundant bucket calls, avoid cache pollution from empty results, and keep applications responsive under load.
 - From a user’s perspective, everything is simplified: intuitive methods, sensible defaults, and a storage model that feels effortless while staying efficient behind the scenes.
 - Ideal for APIs, background workers, dashboards, and ML-ops prototypes that need resilient, low-cost, cache-aware access to S3.
-
+- It turns S3 into a database, in an odd way.
 
 ![NuGet Version](https://img.shields.io/nuget/v/S3mphony?style=flat)
 
