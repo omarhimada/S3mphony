@@ -14,6 +14,13 @@ namespace S3mphony.Utility {
         public string BucketName => _bucketName;
         public readonly string _bucketName;
 
+        /// <summary>
+        /// Initializes a new instance of the S3StorageUtility class using the specified Amazon S3 client and bucket
+        /// name.
+        /// </summary>
+        /// <param name="s3Client">The Amazon S3 client used to perform storage operations.</param>
+        /// <param name="bucketName">The name of the S3 bucket to operate on. Cannot be null or empty.</param>
+        /// <exception cref="ArgumentNullException">Thrown if s3Client is null.</exception>
         public S3StorageUtility(IAmazonS3 s3Client, string bucketName) {
             _s3 = s3Client ?? throw new ArgumentNullException(nameof(s3Client));
             _json = new JsonSerializerOptions(JsonSerializerDefaults.Web) {
