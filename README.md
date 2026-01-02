@@ -9,19 +9,7 @@
 ![NuGet Version](https://img.shields.io/nuget/v/S3mphony?style=flat)
 
 ## S3 Storage Utility Integration
-### Example `appsettings.json` configuration for S3 storage:
-```json
-{
-  "AWS": {
-    "S3": {
-      "BucketName": "ohio-developer-bucket",
-      "Region": "us-east-1",
-      "AccessKeyId": "FAKE471337942",
-      "SecretAccessKey": "DontWorryItIsntARealAccessKey"
-    }
-  }
-} 
-```
+
 ### Example installation and setup:
 - Included is `S3Options`, a C# class to hold S3 configuration options.
 - Then, in your `Startup.cs` or `Program.cs`, wherever you configure services, add the following:
@@ -74,6 +62,20 @@ if (meetingNotes == null || !meetingNotes.Any()) {
         Cache.Set(_recentMeetingNotesCached, meetingNotes, _memoryCacheEntryOptions);
     }
 }
+```
+
+### Example `appsettings.json` configuration for S3 storage:
+```json
+{
+  "AWS": {
+    "S3": {
+      "BucketName": "ohio-developer-bucket",
+      "Region": "us-east-1",
+      "AccessKeyId": "FAKE471337942",
+      "SecretAccessKey": "DontWorryItIsntARealAccessKey"
+    }
+  }
+} 
 ```
 
 ### Then you've got your cool designed UI with whatever library. A simple example using FluentUI for Blazor:

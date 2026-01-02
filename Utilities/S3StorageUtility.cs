@@ -4,6 +4,19 @@ using Microsoft.ML;
 using System.Text.Json;
 
 namespace S3mphony.Utility {
+    /// <summary>
+    /// Provides utility methods for performing common storage operations on an Amazon S3 bucket, including uploading,
+    /// downloading, listing, deleting, and renaming objects, with support for JSON serialization and deserialization of
+    /// objects of type T.
+    /// </summary>
+    /// <remarks>This class abstracts common Amazon S3 operations, such as uploading and downloading files or
+    /// structured data, managing object keys, and handling JSON serialization. It is designed to simplify integration
+    /// with S3 for applications that need to store and retrieve structured data or files. The utility supports
+    /// asynchronous operations and provides options for overwriting, filtering, and generating storage keys. All
+    /// methods require a valid S3 client and bucket name, which are provided at construction. Thread safety depends on
+    /// the thread safety of the underlying IAmazonS3 client.</remarks>
+    /// <typeparam name="T">The type of objects to be serialized to or deserialized from JSON when using the utility's generic methods. Must
+    /// be a reference type.</typeparam>
     public class S3StorageUtility<T> where T : class {
         private readonly IAmazonS3 _s3;
         private readonly JsonSerializerOptions _json;
