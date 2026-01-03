@@ -1,46 +1,28 @@
 ﻿using Amazon.S3;
 using Amazon.S3.Model;
-using Microsoft.ML;
+using S3mphony.Models;
+using System.Reflection;
 using System.Text.Json;
 
 namespace S3mphony.Utility {
+
     /// <summary>
-    /// Provides utility methods for performing common storage operations on an Amazon S3 bucket, including uploading,
-    /// downloading, listing, deleting, and renaming objects, with support for JSON serialization and deserialization of
-    /// objects of type T.
+    /// Provides utility methods for interacting with Amazon S3 storage, including uploading, downloading, listing, and
+    /// deleting objects, as well as handling JSON serialization and deserialization for objects of type T.
     /// </summary>
-    /// <remarks>This class abstracts common Amazon S3 operations, such as uploading and downloading files or
-    /// structured data, managing object keys, and handling JSON serialization. It is designed to simplify integration
-    /// with S3 for applications that need to store and retrieve structured data or files. The utility supports
-    /// asynchronous operations and provides options for overwriting, filtering, and generating storage keys. All
-    /// methods require a valid S3 client and bucket name, which are provided at construction. Thread safety depends on
-    /// the thread safety of the underlying IAmazonS3 client.</remarks>
-    /// <typeparam name="T">The type of objects to be serialized to or deserialized from JSON when using the utility's generic methods. Must
-    /// be a reference type.</typeparam>
-    public class S3StorageUtility<T> where T : class {
-        private readonly IAmazonS3 _s3;
-        private readonly JsonSerializerOptions _json;
-
-        /// <summary>
-        /// Binding from the appsettings.json S3:BucketName property.
-        /// </summary>
-        public string BucketName => _bucketName;
-        public readonly string _bucketName;
-
-        /// <summary>
-        /// Initializes a new instance of the S3StorageUtility class using the specified Amazon S3 client and bucket
-        /// name.
-        /// </summary>
-        /// <param name="s3Client">The Amazon S3 client used to perform storage operations.</param>
-        /// <param name="bucketName">The name of the S3 bucket to operate on. Cannot be null or empty.</param>
-        /// <exception cref="ArgumentNullException">Thrown if s3Client is null.</exception>
-        public S3StorageUtility(IAmazonS3 s3Client, string bucketName) {
-            _s3 = s3Client ?? throw new ArgumentNullException(nameof(s3Client));
-            _json = new JsonSerializerOptions(JsonSerializerDefaults.Web) {
-                PropertyNameCaseInsensitive = true,
-                WriteIndented = false,
-            };
-        }
+    /// <remarks>This utility encapsulates common S3 operations and abstracts away low-level details such as
+    /// key normalization, pagination, and JSON handling. It is designed to simplify working with S3 buckets for
+    /// applications that need to store, retrieve, and manage structured data or files. Thread safety depends on the
+    /// thread safety of the provided IAmazonS3 client and serializer options.</remarks>
+    /// <typeparam name="T">The type of objects to be serialized to or deserialized from JSON when using the utility. Must be a reference
+    /// type.</typeparam>
+    /// <param name="s3Client">The Amazon S3 client used to perform storage operations. Cannot be null.</param>
+    /// <param name="options">The configuration options specifying the S3 bucket and related settings. Cannot be null.</param>
+    /// <param name="jsonOptions">The JSON serializer options used for serializing and deserializing objects of type T. Cannot be null.</param>
+    public class S3StorageUtility<T>(
+        IAmazonS3 s3Client,
+        S3Options options,
+        JsonSerializerOptions jsonOptions) where T : class {
 
         /// <summary>
         /// Checks whether the S3 bucket specified by the current instance exists asynchronously.
@@ -50,10 +32,9 @@ namespace S3mphony.Utility {
         /// exists; otherwise, <see langword="false"/>.</returns>
         public async Task<bool> EnsureBucketExistsAsync(CancellationToken ct = default) {
             try {
-                await _s3.HeadBucketAsync(new HeadBucketRequest { BucketName = BucketName }, ct);
+                _ = await s3Client.HeadBucketAsync(new HeadBucketRequest { BucketName = options.BucketName }, ct);
                 return true;
-            }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) {
+            } catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) {
                 return false;
             }
         }
@@ -71,18 +52,18 @@ namespace S3mphony.Utility {
         /// <returns>A read-only list of strings containing the names of directories found in the bucket. The list is empty if no
         /// directories match the specified prefix.</returns>
         public async Task<IReadOnlyList<string>> ListDirectoriesAsync(string? prefix = null, CancellationToken ct = default) {
-            var results = new List<string>();
+            List<string> results = [];
 
             string? token = null;
             do {
-                var req = new ListObjectsV2Request {
-                    BucketName = BucketName,
+                ListObjectsV2Request req = new() {
+                    BucketName = options.BucketName,
                     Prefix = prefix,
-                    Delimiter = "/",
+                    Delimiter = Constants._fss,
                     ContinuationToken = token,
                 };
 
-                ListObjectsV2Response resp = await _s3.ListObjectsV2Async(req, ct);
+                ListObjectsV2Response resp = await s3Client.ListObjectsV2Async(req, ct);
 
                 // CommonPrefixes are your "folders"
                 if (resp.CommonPrefixes is not null)
@@ -95,31 +76,38 @@ namespace S3mphony.Utility {
         }
 
         /// <summary>
-        /// Asynchronously lists the blobs in the S3 bucket, optionally filtering by a specified prefix.
+        /// Asynchronously retrieves a list of blob keys and their last modified dates from the storage bucket,
+        /// optionally filtered by prefix and paginated using continuation parameters.
         /// </summary>
-        /// <remarks>Blobs representing S3 folder markers (keys ending with a slash) are excluded from the
-        /// results. The method retrieves all matching blobs, handling pagination transparently.</remarks>
-        /// <param name="prefix">An optional prefix to filter the blob names. Only blobs with keys that begin with this prefix are returned.
-        /// If null, all blobs are listed.</param>
-        /// <param name="ct">A cancellation token that can be used to cancel the asynchronous operation.</param>
-        /// <returns>A read-only list of tuples, each containing the blob name and its last modified date. The last modified date
-        /// is null if not available. The list is empty if no blobs match the specified prefix.</returns>
-        public async Task<IReadOnlyList<(string, DateTime?)>> ListBlobsAsync(string? prefix = null, CancellationToken ct = default) {
-            var results = new List<(string, DateTime?)>();
+        /// <remarks>Blob keys that represent S3 folder markers (keys ending with '/') are excluded from
+        /// the results. The method may return fewer results than requested if there are not enough matching
+        /// blobs.</remarks>
+        /// <param name="prefix">
+        /// An optional string to filter the results to blobs whose keys begin with the specified prefix. If null, all
+        /// blobs are included.
+        /// </param>
+        /// <param name="ct">
+        /// A cancellation token that can be used to cancel the asynchronous operation.</param>
+        /// <returns>A read-only list of tuples, each containing the blob key and its last modified date. The list may be empty
+        /// if no blobs match the criteria.
+        /// </returns>
+        public async Task<IReadOnlyList<(string, DateTime?)>>
+            ListBlobsAsync(string? prefix = null, CancellationToken ct = default) {
+            List<(string, DateTime?)> results = [];
 
             string? token = null;
             do {
-                var req = new ListObjectsV2Request {
-                    BucketName = BucketName,
+                ListObjectsV2Request req = new() {
+                    BucketName = options.BucketName,
                     Prefix = prefix,
                     ContinuationToken = token,
                 };
 
-                ListObjectsV2Response resp = await _s3.ListObjectsV2Async(req, ct);
+                ListObjectsV2Response resp = await s3Client.ListObjectsV2Async(req, ct);
 
                 // S3 "folder marker" objects can exist; skip keys that end with "/"
                 foreach (S3Object? obj in resp.S3Objects) {
-                    if (!obj.Key.EndsWith("/")) {
+                    if (!obj.Key.EndsWith(Constants._fss)) {
                         results.Add((obj.Key, obj.LastModified));
                     }
                 }
@@ -141,17 +129,17 @@ namespace S3mphony.Utility {
         public async Task UploadZipAsync(
             string s3Key,
             CancellationToken ct) {
-            await using var ms = new MemoryStream();
+            await using MemoryStream ms = new();
             ms.Position = 0;
 
             PutObjectRequest req = new() {
-                BucketName = _bucketName,
+                BucketName = options.BucketName,
                 Key = s3Key,
                 InputStream = ms,
-                ContentType = "application/zip" // or "application/octet-stream"
+                ContentType = Constants.ContentTypeZip
             };
 
-            await _s3.PutObjectAsync(req, ct);
+            _ = await s3Client.PutObjectAsync(req, ct);
         }
 
         /// <summary>
@@ -179,10 +167,10 @@ namespace S3mphony.Utility {
 
             key = NormalizeKey(key);
 
-            using var ms = new MemoryStream(data, writable: false);
+            using MemoryStream ms = new(data, writable: false);
 
-            var req = new PutObjectRequest {
-                BucketName = BucketName,
+            PutObjectRequest req = new() {
+                BucketName = options.BucketName,
                 Key = key,
                 InputStream = ms,
                 ContentType = contentType,
@@ -193,7 +181,7 @@ namespace S3mphony.Utility {
                 req.Headers["If-None-Match"] = "*";
             }
 
-            await _s3.PutObjectAsync(req, ct);
+            _ = await s3Client.PutObjectAsync(req, ct);
         }
 
         /// <summary>
@@ -206,7 +194,7 @@ namespace S3mphony.Utility {
         /// <param name="key">The object key under which the JSON data will be stored in the S3 bucket. Cannot be null, empty, or
         /// whitespace.</param>
         /// <param name="value">The value to serialize to JSON and upload.</param>
-        /// <param name="contentType">The MIME type to associate with the uploaded object. Defaults to "application/json".</param>
+        /// <param name="contentType">The MIME type to associate with the uploaded object. Defaults to ContentTypeJson.</param>
         /// <param name="overwrite">If <see langword="true"/>, overwrites any existing object with the same key; otherwise, the upload will fail
         /// if the object already exists.</param>
         /// <param name="ct">A cancellation token that can be used to cancel the upload operation.</param>
@@ -215,7 +203,7 @@ namespace S3mphony.Utility {
         public async Task UploadJsonAsync<T>(
             string key,
             T value,
-            string contentType = "application/json",
+            string contentType = Constants.ContentTypeJson,
             bool overwrite = false,
             CancellationToken ct = default) {
             if (string.IsNullOrWhiteSpace(key))
@@ -223,18 +211,19 @@ namespace S3mphony.Utility {
 
             key = NormalizeKey(key);
 
-            byte[] utf8 = JsonSerializer.SerializeToUtf8Bytes(value, _json);
-            using MemoryStream ms = new MemoryStream(utf8, writable: false);
+            byte[] utf8 = JsonSerializer.SerializeToUtf8Bytes(value, jsonOptions);
+            using MemoryStream ms = new(utf8, writable: false);
 
-            PutObjectRequest req = new PutObjectRequest {
-                BucketName = _bucketName,
+            PutObjectRequest req = new() {
+                BucketName = options.BucketName,
                 Key = key,
                 InputStream = ms,
                 ContentType = contentType,
             };
 
-            if (!overwrite) req.Headers["If-None-Match"] = "*";
-            await _s3.PutObjectAsync(req, ct);
+            if (!overwrite)
+                req.Headers["If-None-Match"] = "*";
+            _ = await s3Client.PutObjectAsync(req, ct);
         }
 
         /// <summary>
@@ -251,7 +240,7 @@ namespace S3mphony.Utility {
         /// type and identifier.</param>
         /// <param name="prefix">An optional prefix to prepend to the storage key. Leading and trailing slashes are trimmed. If empty, no
         /// prefix is applied.</param>
-        /// <param name="contentType">The content type to associate with the stored document. Defaults to "application/json".</param>
+        /// <param name="contentType">The content type to associate with the stored document. Defaults to ContentTypeJson.</param>
         /// <param name="overwrite">true to overwrite any existing document with the same key; otherwise, false.</param>
         /// <param name="ct">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>A normalized key string representing the location of the uploaded document in storage.</returns>
@@ -260,7 +249,7 @@ namespace S3mphony.Utility {
             T value,
             string? key = null,
             string prefix = "",
-            string contentType = "application/json",
+            string contentType = Constants.ContentTypeJson,
             bool overwrite = true,
             CancellationToken ct = default) {
             if (value is null) {
@@ -292,10 +281,10 @@ namespace S3mphony.Utility {
             return NormalizeKey(fullKey);
 
             static string? TryGetIdLike(object obj) {
-                var t = obj.GetType();
+                Type t = obj.GetType();
 
                 // Common Id names
-                var prop =
+                PropertyInfo? prop =
                     t.GetProperty("Id") ??
                     t.GetProperty("ID") ??
                     t.GetProperty($"{t.Name}Id") ??
@@ -333,13 +322,12 @@ namespace S3mphony.Utility {
             key = NormalizeKey(key);
 
             try {
-                await _s3.DeleteObjectAsync(new DeleteObjectRequest {
-                    BucketName = _bucketName,
+                _ = await s3Client.DeleteObjectAsync(new DeleteObjectRequest {
+                    BucketName = options.BucketName,
                     Key = key,
                 }, ct);
                 return true;
-            }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) {
+            } catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) {
                 return false;
             }
         }
@@ -361,24 +349,25 @@ namespace S3mphony.Utility {
             string? token = null;
 
             do {
-                ListObjectsV2Response list = await _s3.ListObjectsV2Async(new ListObjectsV2Request {
-                    BucketName = _bucketName,
+                ListObjectsV2Response list = await s3Client.ListObjectsV2Async(new ListObjectsV2Request {
+                    BucketName = options.BucketName,
                     Prefix = prefix,
                     ContinuationToken = token,
                 }, ct);
 
                 if (list.S3Objects.Count > 0) {
                     // S3 supports batch delete up to 1000 keys per request
-                    var del = new DeleteObjectsRequest {
-                        BucketName = _bucketName,
-                        Objects = list.S3Objects.Select(o => new KeyVersion { Key = o.Key }).ToList()
+                    DeleteObjectsRequest del = new() {
+                        BucketName = options.BucketName,
+                        Objects = [.. list.S3Objects.Select(o => new KeyVersion { Key = o.Key })]
                     };
 
-                    DeleteObjectsResponse resp = await _s3.DeleteObjectsAsync(del, ct);
+                    DeleteObjectsResponse resp = await s3Client.DeleteObjectsAsync(del, ct);
                     deleted += resp.DeletedObjects?.Count ?? 0;
                 }
 
-                token = list.IsTruncated.Value ? list.NextContinuationToken : null;
+                // This is quite similar to scrolling in Elasticsearch
+                token = list.IsTruncated.HasValue ? list.NextContinuationToken : null;
             } while (token is not null && !ct.IsCancellationRequested);
 
             return deleted;
@@ -414,33 +403,32 @@ namespace S3mphony.Utility {
 
             // Ensure source exists
             try {
-                await _s3.GetObjectMetadataAsync(new GetObjectMetadataRequest {
-                    BucketName = _bucketName,
+                _ = await s3Client.GetObjectMetadataAsync(new GetObjectMetadataRequest {
+                    BucketName = options.BucketName,
                     Key = sourceKey
                 }, ct);
-            }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) {
+            } catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) {
                 throw new FileNotFoundException($"Source object not found: {sourceKey}");
             }
 
-            CopyObjectRequest copyReq = new CopyObjectRequest {
-                SourceBucket = _bucketName,
+            CopyObjectRequest copyReq = new() {
+                SourceBucket = options.BucketName,
                 SourceKey = sourceKey,
-                DestinationBucket = _bucketName,
+                DestinationBucket = options.BucketName,
                 DestinationKey = destKey,
             };
 
             if (!overwrite) {
                 // Prevent overwrite at destination if it exists
-                copyReq.Headers["If-None-Match"] = "*";
+                copyReq.Headers[Constants.IfNoneMatchHeader] = "*";
             }
 
             // Copy is synchronous (returns when complete)
-            await _s3.CopyObjectAsync(copyReq, ct);
+            _ = await s3Client.CopyObjectAsync(copyReq, ct);
 
             // Delete source after copy
-            await _s3.DeleteObjectAsync(new DeleteObjectRequest {
-                BucketName = _bucketName,
+            _ = await s3Client.DeleteObjectAsync(new DeleteObjectRequest {
+                BucketName = options.BucketName,
                 Key = sourceKey
             }, ct);
         }
@@ -458,12 +446,12 @@ namespace S3mphony.Utility {
 
             key = NormalizeKey(key);
 
-            using GetObjectResponse resp = await _s3.GetObjectAsync(new GetObjectRequest {
-                BucketName = _bucketName,
+            using GetObjectResponse resp = await s3Client.GetObjectAsync(new GetObjectRequest {
+                BucketName = options.BucketName,
                 Key = key,
             }, ct);
 
-            using var ms = new MemoryStream();
+            using MemoryStream ms = new();
             await resp.ResponseStream.CopyToAsync(ms, ct);
             return ms.ToArray();
         }
@@ -480,7 +468,7 @@ namespace S3mphony.Utility {
         /// <exception cref="JsonException">Thrown if the downloaded JSON data is null, empty, or cannot be deserialized to type T.</exception>
         public async Task<T> DownloadJsonAsync<T>(string key, CancellationToken ct = default) {
             byte[] data = await DownloadBytesAsync(key, ct);
-            T? value = JsonSerializer.Deserialize<T>(data, _json);
+            T? value = JsonSerializer.Deserialize<T>(data, jsonOptions);
 
             return value is null
                 ? throw new JsonException($"Object '{key}' contained null/empty JSON for type {typeof(T).Name}")
@@ -503,8 +491,8 @@ namespace S3mphony.Utility {
 
             key = NormalizeKey(key);
 
-            using GetObjectResponse resp = await _s3.GetObjectAsync(new GetObjectRequest {
-                BucketName = _bucketName,
+            using GetObjectResponse resp = await s3Client.GetObjectAsync(new GetObjectRequest {
+                BucketName = options.BucketName,
                 Key = key,
             }, ct);
 
@@ -513,7 +501,9 @@ namespace S3mphony.Utility {
 
         /// <summary>
         /// Asynchronously retrieves a list of S3 objects from the specified bucket and prefix whose keys end with the
-        /// given suffix.
+        /// given suffix. The effectiveness of this method is really dependenant on your personal system's naming strategy
+        /// for keys in S3. Directories, prefix dates, etc., can help limit the number of objects that need to be scanned
+        /// improving UI/UX with quicker load times.
         /// </summary>
         /// <remarks>This method automatically handles pagination of S3 object listings. The operation may
         /// make multiple requests to S3 if the result set is large. The returned list contains only objects whose keys
@@ -529,34 +519,29 @@ namespace S3mphony.Utility {
             string prefix,
             string endsWith,
             CancellationToken ct = default) {
-            var responses = new List<T>();
+            List<T> responses = [];
             string? continuation = null;
 
             List<T> results = [];
 
             do {
                 // Prefix filtering is built-in
-                ListObjectsV2Request request = new ListObjectsV2Request {
-                    BucketName = BucketName,
-                    Prefix = prefix,
-                    ContinuationToken = continuation,
-                };
+                ListObjectsV2Request request = new() { BucketName = options.BucketName, Prefix = prefix, ContinuationToken = continuation, };
 
-                ListObjectsV2Response response = await _s3.ListObjectsV2Async(request, ct);
+                ListObjectsV2Response response = await s3Client.ListObjectsV2Async(request, ct);
                 if (response == null || response.S3Objects.Count == 0) {
                     break;
                 }
 
                 // Filter objects by suffix with LINQ
-                var filteredKeys = response.S3Objects
+                List<string> filteredKeys = [.. response.S3Objects
                     .Where(obj => obj.Key
                         .EndsWith(endsWith, StringComparison.OrdinalIgnoreCase))
-                    .Select(obj => obj.Key)
-                    .ToList();
+                    .Select(obj => obj.Key)];
 
                 foreach (string? key in filteredKeys) {
                     byte[]? data = await DownloadBytesAsync(key, ct);
-                    T? value = JsonSerializer.Deserialize<T>(data, _json);
+                    T? value = JsonSerializer.Deserialize<T>(data, jsonOptions);
 
                     if (value != null) {
                         results.Add(value);
@@ -565,13 +550,11 @@ namespace S3mphony.Utility {
 
                 if (response == null || response.S3Objects.Count == 0) {
                     break;
-                }
-                else {
+                } else {
                     if (response.IsTruncated is null) {
                         continuation = null;
                         break;
-                    }
-                    else {
+                    } else {
                         continuation = response!.NextContinuationToken;
                     }
                 }
@@ -580,7 +563,11 @@ namespace S3mphony.Utility {
             return results;
         }
 
-        public static string NormalizeKey(string name)
-            => name.Replace('\\', '/').TrimStart('/');
+        /// <summary>
+        /// Normalizes a key name by replacing backslashes with forward slashes and removing any leading slashes.
+        /// </summary>
+        /// <param name="name">The key name to normalize. Cannot be null.</param>
+        /// <returns>A normalized string with all backslashes replaced by forward slashes and any leading slashes removed.</returns>
+        public static string NormalizeKey(string name) => name.Replace('\\', '/').TrimStart('/');
     }
 }

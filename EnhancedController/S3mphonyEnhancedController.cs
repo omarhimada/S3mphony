@@ -1,23 +1,15 @@
-﻿using Amazon.Runtime.Internal.Util;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.Caching.Memory;
 using S3mphony.Models;
 using S3mphony.Utility;
-using System.Net.Mime;
 
 namespace S3mphony.EnhancedController {
-    public class S3mphonyEnhancedController<T> : ControllerBase where T : class {
+    public class S3mphonyEnhancedController<T>(IMemoryCache cache, S3Channel<T> s3Channel, S3StorageUtility<T> s3StorageUtility) : ControllerBase where T : class {
 
-        public readonly IMemoryCache _cache;
-        public readonly S3Channel<T> _s3Channel;
-        public readonly S3StorageUtility<T> _s3StorageUtility;
-
-        public S3mphonyEnhancedController(IMemoryCache cache, S3Channel<T> _s3Channel, S3StorageUtility<T> s3StorageUtility) {
-            _cache = cache;
-            _s3Channel = _s3Channel;
-            _s3StorageUtility = s3StorageUtility;
-        }
+        public readonly IMemoryCache _cache = cache;
+        public readonly S3Channel<T> _s3Channel = s3Channel;
+        public readonly S3StorageUtility<T> _s3StorageUtility = s3StorageUtility;
 
         /// <summary>
         /// Asynchronously retrieves a collection of the most recent structures of type <typeparamref name="T"/> from the cache or the
@@ -34,9 +26,9 @@ namespace S3mphony.EnhancedController {
                 _cache.Get<IEnumerable<T>>(Constants.CacheKey<T>()) ?? [];
 
             // Local function to avoid code duplication when retrying
-            Func<Task> localAsyncFunction = async () => {
-                recentStructures = (await _s3Channel.GetRecentStructures<T>()).ToList();
-            };
+            async Task localAsyncFunction() {
+                recentStructures = [.. await _s3Channel.GetRecentStructures()];
+            }
 
             if (!recentStructures.Any()) {
                 // Try again
@@ -44,15 +36,14 @@ namespace S3mphony.EnhancedController {
             }
 
             if (recentStructures.Any()) {
-                _cache.Set(Constants.CacheKey<T>(), recentStructures, new MemoryCacheEntryOptions {
+                _ = _cache.Set(Constants.CacheKey<T>(), recentStructures, new MemoryCacheEntryOptions {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                     Priority = CacheItemPriority.High
                 });
-            }
-            else {
+            } else {
                 // If still no 'T's, disable output caching for this response
                 // This prevents OutputCache from storing the response for this request
-                HttpContext.Features.Get<IOutputCacheFeature>()?.Context.AllowCacheStorage = false;
+                _ = (HttpContext.Features.Get<IOutputCacheFeature>()?.Context.AllowCacheStorage = false);
             }
 
             return recentStructures ?? [];
@@ -76,19 +67,18 @@ namespace S3mphony.EnhancedController {
         /// indicating the outcome of the creation request. Returns a 201 Created response with the created item if
         /// successful, or a 400 Bad Request if the input is invalid.</returns>
         [HttpPost]
-        public async Task<ActionResult<T>> Post([FromBody] T item, 
-            string name = null, 
-            string prefix = "", 
-            string contentType = "application/json", 
-            bool overwrite = true, 
+        public async Task<ActionResult<T>> Post([FromBody] T item,
+            string name = null,
+            string prefix = "",
+            string contentType = "application/json",
+            bool overwrite = true,
             CancellationToken ct = default) {
 
             if (item is null)
                 return BadRequest("Body cannot be null.");
 
             // Generate a name if not provided
-            if (name == null)
-                name = $"{DateTime.Now.ToShortDateString}-{Guid.NewGuid().ToString()}";
+            name ??= $"{DateTime.Now.ToShortDateString}-{Guid.NewGuid()}";
 
             // Key of the recently created blob in S3
             string createdKey = await _s3StorageUtility.PutStructureAsync(item, name, prefix, contentType, overwrite, ct);
@@ -97,7 +87,7 @@ namespace S3mphony.EnhancedController {
             _cache.Remove(Constants.CacheKey<T>());
 
             // POST responses should not be output-cached
-            HttpContext.Features.Get<IOutputCacheFeature>()?.Context.AllowCacheStorage = false;
+            _ = (HttpContext.Features.Get<IOutputCacheFeature>()?.Context.AllowCacheStorage = false);
 
             // If you have a GET-by-id endpoint, use CreatedAtAction.
             // Without a stable "id" route for T, returning Created(key, item) is fine.
