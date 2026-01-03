@@ -19,7 +19,7 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore ./S3mphony.csproj
+        run: dotnet restore ./S3mphony.slnx
 
       - name: Build (Release)
         run: dotnet build ./S3mphony.csproj --configuration Release --no-restore
