@@ -16,7 +16,7 @@
 ![NuGet Version](https://img.shields.io/nuget/v/S3mphony?style=flat)
 
 ## Update to support parallel downloads from S3 while deserializing.
-### May have to tinker with this if you run into 503 errors.
+Changed:
 ```
 foreach (string? key in filteredKeys) {
     byte[]? data = await DownloadBytesAsync(key, ct);
