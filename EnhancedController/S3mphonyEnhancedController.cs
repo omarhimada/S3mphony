@@ -36,10 +36,11 @@ namespace S3mphony.EnhancedController {
             }
 
             if (recentStructures.Any()) {
-                _ = _cache.Set(Constants.CacheKey<T>(), recentStructures, new MemoryCacheEntryOptions {
+                var c = _cache.Set(Constants.CacheKey<T>(), recentStructures, new MemoryCacheEntryOptions {
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                     Priority = CacheItemPriority.High
                 });
+                c = null;
             } else {
                 // If still no 'T's, disable output caching for this response
                 // This prevents OutputCache from storing the response for this request
@@ -68,7 +69,7 @@ namespace S3mphony.EnhancedController {
         /// successful, or a 400 Bad Request if the input is invalid.</returns>
         [HttpPost]
         public async Task<ActionResult<T>> Post([FromBody] T item,
-            string name = null,
+            string? name = null,
             string prefix = "",
             string contentType = "application/json",
             bool overwrite = true,

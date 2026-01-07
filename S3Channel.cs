@@ -1,16 +1,19 @@
 ﻿using Microsoft.Extensions.Caching.Memory;
 using S3mphony.Models;
 using S3mphony.Utility;
+using System.Linq;
 
 namespace S3mphony {
     /// <summary>
     /// Provides generic methods to interact with S3 storage for retrieving strongly typed structures,
     /// deserializing them, and utilizing the in-memory cache of the application to reduce redundant S3 calls.
+    /// The assumption is that you've already set up an S3StorageUtility and added IMemoryCache to your DI container.
     /// </summary>
     /// <typeparam name="T">Whatever type of object you're storing in S3.</typeparam>
     /// <param name="s3StorageUtility">Singleton, register this </param>
     /// <param name="memoryCache"></param>
     public class S3Channel<T>(S3StorageUtility<T> s3StorageUtility, IMemoryCache memoryCache) where T : class {
+
         private readonly S3StorageUtility<T> _s3StorageUtility = s3StorageUtility ?? throw new ArgumentNullException(nameof(s3StorageUtility));
         private readonly IMemoryCache _memoryCache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
 
@@ -40,7 +43,7 @@ namespace S3mphony {
             CancellationToken ct = default) {
 
             if (takeMostRecent <= 0) {
-                throw new ArgumentOutOfRangeException(nameof(takeMostRecent), "Must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(takeMostRecent), Constants.Messages.ErrorGreaterThanZero);
             }
 
             // In-memory cache has a location for each 'page' if you're paginating.
@@ -63,15 +66,33 @@ namespace S3mphony {
 
                 // Local function to download from the listing of keys and orders them
                 async Task downloadFromListing() {
-                    IEnumerable<(string key, DateTime? lastModified)> orderedQueryable =
-                        mostRecentTKeys
-                            .OrderByDescending(x => x.lastModified ?? DateTime.MinValue)
-                            .Take(takeMostRecent);
+                    (string key, DateTime? lastModified)[] ordered = mostRecentTKeys
+                        .OrderByDescending(x => x.lastModified ?? DateTime.MinValue)
+                        .Take(takeMostRecent)
+                        .ToArray();
 
-                    foreach ((string key, DateTime? lastModified) in orderedQueryable) {
-                        ct.ThrowIfCancellationRequested();
+                    // Limit to three blob downloads in parallel for now
+                    // Avoid Amazon 503 error
+                    int maxConcurrency = 3; 
+                    using var gate = new SemaphoreSlim(maxConcurrency);
 
-                        T? t = await _s3StorageUtility.DownloadJsonAsync<T>(key, ct);
+                    IEnumerable<Task<T>> tasks = ordered.Select(async item =>
+                    {
+                        (string? key, DateTime? _) = item;
+
+                        await gate.WaitAsync(ct);
+                        try {
+                            ct.ThrowIfCancellationRequested();
+                            return await _s3StorageUtility.DownloadJsonAsync<T>(key, ct);
+                        } finally {
+                            gate.Release();
+                        }
+                    });
+
+                    T[] results = await Task.WhenAll(tasks);
+
+                    // preserves the original sorted order because Task.WhenAll keeps input order
+                    foreach (T? t in results) {
                         if (t is not null)
                             response.Add(t);
                     }
@@ -93,14 +114,13 @@ namespace S3mphony {
                     await attempt();
                 }
 
-                // Cache only we receive a non-empty response
+                // Cache only when we receive a non-empty response
                 if (response.Count != 0) {
                     _ = _memoryCache.Set($"{Constants.CacheKey<T>()}:{takeMostRecent}", response, new MemoryCacheEntryOptions {
                         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
                         Priority = CacheItemPriority.High
                     });
                 }
-
                 return response;
             } finally {
                 _ = _recentStructuresGate.Release();

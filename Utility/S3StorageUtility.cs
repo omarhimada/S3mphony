@@ -1,11 +1,11 @@
 ﻿using Amazon.S3;
 using Amazon.S3.Model;
+using Microsoft.ML;
 using S3mphony.Models;
 using System.Reflection;
 using System.Text.Json;
 
 namespace S3mphony.Utility {
-
     /// <summary>
     /// Provides utility methods for interacting with Amazon S3 storage, including uploading, downloading, listing, and
     /// deleting objects, as well as handling JSON serialization and deserialization for objects of type T.
@@ -22,7 +22,20 @@ namespace S3mphony.Utility {
     public class S3StorageUtility<T>(
         IAmazonS3 s3Client,
         S3Options options,
-        JsonSerializerOptions jsonOptions) where T : class {
+        JsonSerializerOptions? jsonOptions) where T : class {
+
+        /// <summary>
+        /// Retrieves the current <see cref="JsonSerializerOptions"/> instance used for JSON serialization and
+        /// deserialization.
+        /// </summary>
+        /// <returns>The <see cref="JsonSerializerOptions"/> instance to be used. If no custom options are set, returns the
+        /// default options defined in <see cref="Constants.DefaultJsonOptions"/>.</returns>
+        private JsonSerializerOptions _jsonOptions() => jsonOptions ?? Constants.DefaultJsonOptions;
+
+        /// <summary>
+        /// Current application name for tagging in S3.
+        /// </summary>
+        private readonly string _appName = Assembly.GetExecutingAssembly().GetName()?.Name?.ToLowerInvariant() ?? string.Empty;
 
         /// <summary>
         /// Checks whether the S3 bucket specified by the current instance exists asynchronously.
@@ -66,8 +79,9 @@ namespace S3mphony.Utility {
                 ListObjectsV2Response resp = await s3Client.ListObjectsV2Async(req, ct);
 
                 // CommonPrefixes are your "folders"
-                if (resp.CommonPrefixes is not null)
+                if (resp.CommonPrefixes is not null) {
                     results.AddRange(resp.CommonPrefixes);
+                }
 
                 token = resp.IsTruncated!.Value ? resp.NextContinuationToken : null;
             } while (token is not null && !ct.IsCancellationRequested);
@@ -120,26 +134,40 @@ namespace S3mphony.Utility {
 
         /// <summary>
         /// Asynchronously uploads a zip file, like a serialized ML.NET model, to an Amazon S3 bucket at the specified key.
+        /// Binary ML.NET models are uploaded as raw bytes using application/octet-stream by default.
+        /// Override to application/zip only when storing actual ZIP archives, such as ML.NET model bundles or compressed archives.
         /// </summary>
         /// <remarks>The model is serialized in a format compatible with ML.NET and uploaded as a zip file
         /// to the specified S3 location. If a model already exists at the given key, it will be overwritten.</remarks>
         /// <param name="s3Key">The S3 object key under which the model will be stored. Cannot be null or empty.</param>
         /// <param name="ct">A cancellation token that can be used to cancel the upload operation.</param>
         /// <returns>A task that represents the asynchronous upload operation.</returns>
-        public async Task UploadZipAsync(
-            string s3Key,
-            CancellationToken ct) {
-            await using MemoryStream ms = new();
-            ms.Position = 0;
+        public async Task UploadModelAsync(
+            MLContext mlContext,
+            ITransformer model,
+            DataViewSchema inputSchema,
+            string modelDirectoryPrefix,
+            string modelName,
+            CancellationToken ct,
+            string contentType = Constants.ContentTypeOctetStream) {
 
-            PutObjectRequest req = new() {
+            await using MemoryStream memoryStream = new();
+            mlContext.Model.Save(model, inputSchema, memoryStream);
+            memoryStream.Position = 0;
+
+            PutObjectRequest request = new() {
+                // Prevent accidental double slashes
+                Key = $"{modelDirectoryPrefix.TrimEnd(Constants._fs)}/{modelName.TrimStart(Constants._fs)}",
+                InputStream = memoryStream,
                 BucketName = options.BucketName,
-                Key = s3Key,
-                InputStream = ms,
-                ContentType = Constants.ContentTypeZip
+                ContentType = Constants.ContentTypeOctetStream,
+                TagSet = [
+                    new() { Key = Constants.Tags.ObjectDescriptor, Value = Constants.Tags.ModelObjectType },
+                    new() { Key = Constants.Tags.Source, Value = $"{_appName}-{Constants.Tags.ObjectSource}"}
+                ]
             };
 
-            _ = await s3Client.PutObjectAsync(req, ct);
+            _ = await s3Client.PutObjectAsync(request, ct);
         }
 
         /// <summary>
@@ -159,7 +187,7 @@ namespace S3mphony.Utility {
         public async Task UploadBytesAsync(
             string key,
             byte[] data,
-            string contentType = "application/octet-stream",
+            string contentType = Constants.ContentTypeOctetStream,
             bool overwrite = false,
             CancellationToken ct = default) {
             if (string.IsNullOrWhiteSpace(key))
@@ -178,7 +206,7 @@ namespace S3mphony.Utility {
 
             if (!overwrite) {
                 // Prevent overwrite if object already exists
-                req.Headers["If-None-Match"] = "*";
+                req.Headers[Constants.IfNoneMatchHeader] = Constants._as;
             }
 
             _ = await s3Client.PutObjectAsync(req, ct);
@@ -211,7 +239,7 @@ namespace S3mphony.Utility {
 
             key = NormalizeKey(key);
 
-            byte[] utf8 = JsonSerializer.SerializeToUtf8Bytes(value, jsonOptions);
+            byte[] utf8 = JsonSerializer.SerializeToUtf8Bytes(value, _jsonOptions());
             using MemoryStream ms = new(utf8, writable: false);
 
             PutObjectRequest req = new() {
@@ -468,7 +496,7 @@ namespace S3mphony.Utility {
         /// <exception cref="JsonException">Thrown if the downloaded JSON data is null, empty, or cannot be deserialized to type T.</exception>
         public async Task<T> DownloadJsonAsync<T>(string key, CancellationToken ct = default) {
             byte[] data = await DownloadBytesAsync(key, ct);
-            T? value = JsonSerializer.Deserialize<T>(data, jsonOptions);
+            T? value = JsonSerializer.Deserialize<T>(data, _jsonOptions());
 
             return value is null
                 ? throw new JsonException($"Object '{key}' contained null/empty JSON for type {typeof(T).Name}")
@@ -539,24 +567,23 @@ namespace S3mphony.Utility {
                         .EndsWith(endsWith, StringComparison.OrdinalIgnoreCase))
                     .Select(obj => obj.Key)];
 
-                foreach (string? key in filteredKeys) {
-                    byte[]? data = await DownloadBytesAsync(key, ct);
-                    T? value = JsonSerializer.Deserialize<T>(data, jsonOptions);
+                // Concurrent download and deserialize all matching objects
+                T?[] values = await Task.WhenAll(
+                    filteredKeys.Select(async key =>
+                        JsonSerializer.Deserialize<T>(
+                            await DownloadBytesAsync(key, ct),
+                            _jsonOptions()))
+                );
 
-                    if (value != null) {
-                        results.Add(value);
-                    }
-                }
-
-                if (response == null || response.S3Objects.Count == 0) {
-                    break;
-                } else {
+                if (values.Length != 0) {
                     if (response.IsTruncated is null) {
                         continuation = null;
                         break;
                     } else {
                         continuation = response!.NextContinuationToken;
                     }
+                } else {
+                    break;
                 }
             } while (continuation is not null && !ct.IsCancellationRequested);
 

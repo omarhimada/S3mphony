@@ -1,21 +1,52 @@
 ﻿# S3mphony
-- S3mphony is a lightweight, generic, developer-friendly C# library that simplifies Amazon S3 interactions for APIs and services.
-- Designed for clean architecture and efficient reads, it provides seamless blob listing, JSON serialization, and upload/download utilities through a single fluent channel interface.
-- Built-in support for read-through caching and request-level concurrency gating helps prevent redundant bucket calls, avoid cache pollution from empty results, and keep applications responsive under load.
-- From a user’s perspective, everything is simplified: intuitive methods, sensible defaults, and a storage model that feels effortless while staying efficient behind the scenes.
-- Ideal for APIs, background workers, dashboards, and ML-ops prototypes that need resilient, low-cost, cache-aware access to S3.
+## AWS S3 Abstraction & Infrastructure Utility
+- S3mphony is a lightweight, generic, developer-friendly library that simplifies Amazon S3 interactions for APIs and services.
+- Designed for keeping code clean and efficient, `octet-stream` support for uploading ML models, providing `JSON` deserialization/serialization simplifications, and upload/download utilities for specific use cases.
+- Includes `CsvHelper` for reading and writing **large** CSV files via streaming as opposed to typical uploads and downloads.
+
+- Built-in support with Microsoft's `IMemoryCache` request-level concurrency gating, avoid cache pollution from empty results, and keep applications responsive under load.
+
+- Includes a **semaphore** lock to prevent data corruption and fault tolerance. In a distributed environment, connecting to the same bucket, this is an important inclusion.
+    - *This is distinct from 'S3 Object Lock', designed to prevent objects from being deleted or overwritten.*
+
+- From a developer’s perspective, everything is simplified: intuitive methods, sensible defaults, and a storage model that feels effortless while staying efficient behind the scenes.
+- Ideal for APIs, background workers, dashboards, and ML-ops that need resilient, low-cost, cache-aware access to S3.
 - It turns S3 into a database, in an odd way.
 
 ![NuGet Version](https://img.shields.io/nuget/v/S3mphony?style=flat)
 
-## S3 Storage Utility Integration
+## 
+
+## Getting Started
+
+### AWS deployment example with `appsettings.json` configuration for configuration:
+```json
+{
+    "AWS": {
+            "Profile: "development",
+            "Region: "ca-central-1",
+            "S3": {
+                "AccessKeyId": "...",
+                "SecretAccessKey: "...",
+                "BucketName: "my-bucket-name"
+            }
+        }
+    }
+}
+```
+
+### Azure deployments
+- Use double underscores to separate the nested configuration sections.
+- For example, `AWS__S3__AccessKeyId`, `AWS__S3__SecretAccessKey`, and `AWS__S3__BucketName`.
+
+
 
 ### Example installation and setup:
 - Included is `S3Options`, a C# class to hold S3 configuration options.
 - Then, in your `Startup.cs` or `Program.cs`, wherever you configure services, add the following:
 
 ```csharp
-S3Options s3Options = new(builder.Configuration["AWS:S3");
+S3Options s3Options = builder.Configuration["AWS:S3"];
 
 builder.Configuration.Bind(s3Options);
 
@@ -62,20 +93,6 @@ if (meetingNotes == null || !meetingNotes.Any()) {
         Cache.Set(_recentMeetingNotesCached, meetingNotes, _memoryCacheEntryOptions);
     }
 }
-```
-
-### Example `appsettings.json` configuration for S3 storage:
-```json
-{
-  "AWS": {
-    "S3": {
-      "BucketName": "ohio-developer-bucket",
-      "Region": "us-east-1",
-      "AccessKeyId": "FAKE471337942",
-      "SecretAccessKey": "DontWorryItIsntARealAccessKey"
-    }
-  }
-} 
 ```
 
 ### Then you've got your cool designed UI with whatever library. A simple example using FluentUI for Blazor:

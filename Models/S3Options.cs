@@ -7,11 +7,13 @@
     /// <code>
     /// {
     ///     "AWS": {
-    ///         "S3": {
-    ///             "AccessKeyId": "",
-    ///             "SecretAccessKey: "",
-    ///             "Region: "",
-    ///             "BucketName: ""
+    ///             "Profile: "development",
+    ///             "Region: "ca-central-1",
+    ///             "S3": {
+    ///                 "AccessKeyId": "...",
+    ///                 "SecretAccessKey: "...",
+    ///                 "BucketName: "my-bucket-name"
+    ///             }
     ///         }
     ///     }
     /// }
