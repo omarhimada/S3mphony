@@ -12,10 +12,31 @@
 - From a developer’s perspective, everything is simplified: intuitive methods, sensible defaults, and a storage model that feels effortless while staying efficient behind the scenes.
 - Ideal for APIs, background workers, dashboards, and ML-ops that need resilient, low-cost, cache-aware access to S3.
 - It turns S3 into a database, in an odd way.
-
+- 
 ![NuGet Version](https://img.shields.io/nuget/v/S3mphony?style=flat)
 
-## 
+### Update to support parallel downloads from S3 while deserializing.
+## May have to tinker with this if you run into 503 errors.
+```
+foreach (string? key in filteredKeys) {
+    byte[]? data = await DownloadBytesAsync(key, ct);
+    T? value = JsonSerializer.Deserialize<T>(data, jsonOptions);
+
+    if (value != null) {
+        results.Add(value);
+    }
+}
+```
+To this: 
+```
+// Concurrent download and deserialize all matching objects
+T?[] values = await Task.WhenAll(
+    filteredKeys.Select(async key =>
+        JsonSerializer.Deserialize<T>(
+            await DownloadBytesAsync(key, ct),
+            _jsonOptions()))
+);
+```
 
 ## Getting Started
 
