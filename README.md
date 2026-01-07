@@ -13,7 +13,9 @@
 - Ideal for APIs, background workers, dashboards, and ML-ops that need resilient, low-cost, cache-aware access to S3.
 - It turns S3 into a database, in an odd way.
 - 
+![NuGet Downloads](https://img.shields.io/nuget/dt/S3mphony)
 ![NuGet Version](https://img.shields.io/nuget/v/S3mphony?style=flat)
+
 
 ## Update to support parallel downloads from S3 while deserializing.
 Changed:
